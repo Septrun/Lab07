@@ -52,11 +52,10 @@ dependencies {
 
     testImplementation(libs.junit)
 
-    // En las dependencias de prueba ya no es necesario re-declarar el platform(libs.androidx.compose.bom) completo si usa el BOM por defecto,
-    // pero si lo requiere tu plantilla, asegúrate de no duplicarlo en el bloque de producción. Aquí lo dejamos limpio para pruebas:
-    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(platform("androidx.compose:compose-bom:2024.04.01"))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
 
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)

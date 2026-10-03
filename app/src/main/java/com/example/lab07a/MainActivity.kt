@@ -9,7 +9,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -19,21 +22,28 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import coil.compose.AsyncImage
 import kotlinx.serialization.Serializable
 
-@Serializable
-object LoginRoute
+// Rutas principales y de navegación
+@Serializable object LoginRoute
+@Serializable object MainAppRoute
 
-@Serializable
-object CharactersRoute
+@Serializable object CharactersTabRoute
+@Serializable object LocationsTabRoute
+@Serializable object ProfileTabRoute
 
-@Serializable
-data class CharacterDetailRoute(val characterId: Int)
+@Serializable object CharactersListRoute
+@Serializable data class CharacterDetailRoute(val characterId: Int)
+
+@Serializable object LocationsListRoute
+@Serializable data class LocationDetailRoute(val locationId: Int)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -59,31 +69,137 @@ fun RickAndMortyApp() {
         composable<LoginRoute> {
             LoginScreen(
                 onStartClick = {
-                    navController.navigate(CharactersRoute) {
+                    navController.navigate(MainAppRoute) {
                         popUpTo<LoginRoute> { inclusive = true }
                     }
                 }
             )
         }
-        composable<CharactersRoute> {
-            CharactersScreen(
-                onCharacterClick = { characterId ->
-                    navController.navigate(CharacterDetailRoute(characterId = characterId))
+        composable<MainAppRoute> {
+            MainScreen(
+                onLogout = {
+                    navController.navigate(LoginRoute) {
+                        popUpTo(0) { inclusive = true }
+                    }
                 }
-            )
-        }
-        composable<CharacterDetailRoute> { backStackEntry ->
-
-            val detailRoute = backStackEntry.toRoute<CharacterDetailRoute>()
-            CharacterDetailScreen(
-                characterId = detailRoute.characterId,
-                onBackClick = { navController.popBackStack() }
             )
         }
     }
 }
 
-// Login
+@Composable
+fun MainScreen(onLogout: () -> Unit) {
+    val tabNavController = rememberNavController()
+    val navBackStackEntry by tabNavController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route
+
+    Scaffold(
+        bottomBar = {
+            NavigationBar(
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+            ) {
+                NavigationBarItem(
+                    icon = { Icon(Icons.Default.Person, contentDescription = "Characters") },
+                    label = { Text("Characters") },
+                    selected = currentRoute?.contains("CharactersTabRoute") == true,
+                    onClick = {
+                        tabNavController.navigate(CharactersTabRoute) {
+                            popUpTo(tabNavController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    }
+                )
+                NavigationBarItem(
+                    icon = { Icon(Icons.Default.LocationOn, contentDescription = "Locations") },
+                    label = { Text("Locations") },
+                    selected = currentRoute?.contains("LocationsTabRoute") == true,
+                    onClick = {
+                        tabNavController.navigate(LocationsTabRoute) {
+                            popUpTo(tabNavController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    }
+                )
+                NavigationBarItem(
+                    icon = { Icon(Icons.Default.AccountCircle, contentDescription = "Profile") },
+                    label = { Text("Profile") },
+                    selected = currentRoute?.contains("ProfileTabRoute") == true,
+                    onClick = {
+                        tabNavController.navigate(ProfileTabRoute) {
+                            popUpTo(tabNavController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    }
+                )
+            }
+        }
+    ) { innerPadding ->
+        NavHost(
+            navController = tabNavController,
+            startDestination = CharactersTabRoute,
+            modifier = Modifier.padding(innerPadding)
+        ) {
+            // Characters
+            composable<CharactersTabRoute> {
+                val characterNavController = rememberNavController()
+                NavHost(navController = characterNavController, startDestination = CharactersListRoute) {
+                    composable<CharactersListRoute> {
+                        CharactersScreen(
+                            onCharacterClick = { characterId ->
+                                characterNavController.navigate(CharacterDetailRoute(characterId = characterId))
+                            }
+                        )
+                    }
+                    composable<CharacterDetailRoute> { backStackEntry ->
+                        val detailRoute = backStackEntry.toRoute<CharacterDetailRoute>()
+                        CharacterDetailScreen(
+                            characterId = detailRoute.characterId,
+                            onBackClick = { characterNavController.popBackStack() }
+                        )
+                    }
+                }
+            }
+
+            // Locations
+            composable<LocationsTabRoute> {
+                val locationNavController = rememberNavController()
+                NavHost(navController = locationNavController, startDestination = LocationsListRoute) {
+                    composable<LocationsListRoute> {
+                        LocationsScreen(
+                            onLocationClick = { locationId ->
+                                locationNavController.navigate(LocationDetailRoute(locationId = locationId))
+                            }
+                        )
+                    }
+                    composable<LocationDetailRoute> { backStackEntry ->
+                        val detailRoute = backStackEntry.toRoute<LocationDetailRoute>()
+                        LocationDetailScreen(
+                            locationId = detailRoute.locationId,
+                            onBackClick = { locationNavController.popBackStack() }
+                        )
+                    }
+                }
+            }
+
+            // Profile screen
+            composable<ProfileTabRoute> {
+                ProfileScreen(onLogout = onLogout)
+            }
+        }
+    }
+}
+
+// Login screen
 @Composable
 fun LoginScreen(onStartClick: () -> Unit) {
     Box(
@@ -134,7 +250,7 @@ fun LoginScreen(onStartClick: () -> Unit) {
     }
 }
 
-// Personajes
+// Characters screen
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CharactersScreen(onCharacterClick: (Int) -> Unit) {
@@ -203,7 +319,7 @@ fun CharacterItem(character: Character, onClick: () -> Unit) {
     }
 }
 
-// Detalles de personajes
+// Character details screen
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CharacterDetailScreen(characterId: Int, onBackClick: () -> Unit) {
@@ -211,7 +327,7 @@ fun CharacterDetailScreen(characterId: Int, onBackClick: () -> Unit) {
     val character = remember(characterId) {
         try {
             characterDb.getCharacterById(characterId)
-        } catch (_: Exception) { // <-- Usar _ para indicar que no se usa
+        } catch (_: Exception) {
             null
         }
     }
@@ -223,7 +339,7 @@ fun CharacterDetailScreen(characterId: Int, onBackClick: () -> Unit) {
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
                         Icon(
-                            imageVector = Icons.Default.ArrowBack,
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back"
                         )
                     }
@@ -286,6 +402,200 @@ fun CharacterDetailScreen(characterId: Int, onBackClick: () -> Unit) {
                 contentAlignment = Alignment.Center
             ) {
                 Text(text = "Personaje no encontrado")
+            }
+        }
+    }
+}
+
+// Locations screen
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun LocationsScreen(onLocationClick: (Int) -> Unit) {
+    val locationDb = remember { LocationDb() }
+    val locations = remember { locationDb.getAllLocations() }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Locations") },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary
+                )
+            )
+        }
+    ) { paddingValues ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+        ) {
+            items(locations) { location ->
+                LocationItem(location = location) {
+                    onLocationClick(location.id)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun LocationItem(location: Location, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        Text(
+            text = location.name,
+            fontWeight = FontWeight.Bold,
+            fontSize = 18.sp,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = location.type,
+            fontSize = 14.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+// Location details screen
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun LocationDetailScreen(locationId: Int, onBackClick: () -> Unit) {
+    val locationDb = remember { LocationDb() }
+    val location = remember(locationId) {
+        try {
+            locationDb.getLocationById(locationId)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Location details") },
+                navigationIcon = {
+                    IconButton(onClick = onBackClick) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back"
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary
+                )
+            )
+        }
+    ) { paddingValues ->
+        if (location != null) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    text = location.name,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp)
+                ) {
+                    DetailRow(label = "ID:", value = location.id.toString())
+                    Spacer(modifier = Modifier.height(12.dp))
+                    DetailRow(label = "Type:", value = location.type)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    DetailRow(label = "Dimensions:", value = location.dimension)
+                }
+            }
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(text = "Location no encontrada")
+            }
+        }
+    }
+}
+
+// Profile screen
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ProfileScreen(onLogout: () -> Unit) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Profile") },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary
+                )
+            )
+        }
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.AccountCircle,
+                contentDescription = "Profile Picture",
+                modifier = Modifier
+                    .size(120.dp)
+                    .clip(CircleShape),
+                tint = MaterialTheme.colorScheme.primary
+            )
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 32.dp)
+            ) {
+                DetailRow(label = "Nombre:", value = "Diego Ayala")
+                Spacer(modifier = Modifier.height(12.dp))
+                DetailRow(label = "Carné:", value = "25570")
+            }
+
+            Spacer(modifier = Modifier.height(48.dp))
+
+            Button(
+                onClick = onLogout,
+                modifier = Modifier
+                    .fillMaxWidth(0.6f)
+                    .height(50.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer
+                )
+            ) {
+                Text(text = "Cerrar sesión", fontSize = 16.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
