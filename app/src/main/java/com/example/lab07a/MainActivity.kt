@@ -13,6 +13,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -20,8 +21,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -160,10 +163,8 @@ fun MainScreen(onLogout: () -> Unit) {
                             }
                         )
                     }
-                    composable<CharacterDetailRoute> { backStackEntry ->
-                        val detailRoute = backStackEntry.toRoute<CharacterDetailRoute>()
+                    composable<CharacterDetailRoute> {
                         CharacterDetailScreen(
-                            characterId = detailRoute.characterId,
                             onBackClick = { characterNavController.popBackStack() }
                         )
                     }
@@ -181,10 +182,8 @@ fun MainScreen(onLogout: () -> Unit) {
                             }
                         )
                     }
-                    composable<LocationDetailRoute> { backStackEntry ->
-                        val detailRoute = backStackEntry.toRoute<LocationDetailRoute>()
+                    composable<LocationDetailRoute> {
                         LocationDetailScreen(
-                            locationId = detailRoute.locationId,
                             onBackClick = { locationNavController.popBackStack() }
                         )
                     }
@@ -194,6 +193,70 @@ fun MainScreen(onLogout: () -> Unit) {
             // Profile screen
             composable<ProfileTabRoute> {
                 ProfileScreen(onLogout = onLogout)
+            }
+        }
+    }
+}
+
+// Componentes de Loading y Error
+@Composable
+fun LoadingScreen(onLoadingClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .clickable(onClick = onLoadingClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(48.dp),
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "Cargando",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+        }
+    }
+}
+
+@Composable
+fun ErrorScreen(message: String, onRetryClick: () -> Unit) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier.padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Warning,
+                contentDescription = "Error",
+                modifier = Modifier.size(64.dp),
+                tint = MaterialTheme.colorScheme.error
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyLarge,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.error
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+            OutlinedButton(
+                onClick = onRetryClick,
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error
+                )
+            ) {
+                Text(text = "Reintentar")
             }
         }
     }
@@ -253,9 +316,11 @@ fun LoginScreen(onStartClick: () -> Unit) {
 // Characters screen
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CharactersScreen(onCharacterClick: (Int) -> Unit) {
-    val characterDb = remember { CharacterDb() }
-    val characters = remember { characterDb.getAllCharacters() }
+fun CharactersScreen(
+    viewModel: CharactersViewModel = viewModel(),
+    onCharacterClick: (Int) -> Unit
+) {
+    val uiState by viewModel.uiState.collectAsState()
 
     Scaffold(
         topBar = {
@@ -268,14 +333,30 @@ fun CharactersScreen(onCharacterClick: (Int) -> Unit) {
             )
         }
     ) { paddingValues ->
-        LazyColumn(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            items(characters) { character ->
-                CharacterItem(character = character) {
-                    onCharacterClick(character.id)
+            when {
+                uiState.isLoading -> {
+                    LoadingScreen(onLoadingClick = { viewModel.triggerError() })
+                }
+                uiState.hasError -> {
+                    ErrorScreen(
+                        message = "Error al obtener listado de personajes.\nIntenta de nuevo",
+                        onRetryClick = { viewModel.loadCharacters() }
+                    )
+                }
+                else -> {
+                    val characters = uiState.data ?: emptyList()
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        items(characters) { character ->
+                            CharacterItem(character = character) {
+                                onCharacterClick(character.id)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -322,15 +403,11 @@ fun CharacterItem(character: Character, onClick: () -> Unit) {
 // Character details screen
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CharacterDetailScreen(characterId: Int, onBackClick: () -> Unit) {
-    val characterDb = remember { CharacterDb() }
-    val character = remember(characterId) {
-        try {
-            characterDb.getCharacterById(characterId)
-        } catch (_: Exception) {
-            null
-        }
-    }
+fun CharacterDetailScreen(
+    viewModel: CharacterDetailViewModel = viewModel(),
+    onBackClick: () -> Unit
+) {
+    val uiState by viewModel.uiState.collectAsState()
 
     Scaffold(
         topBar = {
@@ -352,56 +429,66 @@ fun CharacterDetailScreen(characterId: Int, onBackClick: () -> Unit) {
             )
         }
     ) { paddingValues ->
-        if (character != null) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Spacer(modifier = Modifier.height(16.dp))
-
-                AsyncImage(
-                    model = character.image,
-                    contentDescription = character.name,
-                    modifier = Modifier
-                        .size(150.dp)
-                        .clip(CircleShape),
-                    contentScale = ContentScale.Crop
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Text(
-                    text = character.name,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-
-                Spacer(modifier = Modifier.height(32.dp))
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 32.dp)
-                ) {
-                    DetailRow(label = "Species:", value = character.species)
-                    Spacer(modifier = Modifier.height(12.dp))
-                    DetailRow(label = "Status:", value = character.status)
-                    Spacer(modifier = Modifier.height(12.dp))
-                    DetailRow(label = "Gender:", value = character.gender)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+        ) {
+            when {
+                uiState.isLoading -> {
+                    LoadingScreen(onLoadingClick = { viewModel.triggerError() })
                 }
-            }
-        } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(text = "Personaje no encontrado")
+                uiState.hasError -> {
+                    ErrorScreen(
+                        message = "Error al obtener perfil del personaje.\nIntenta de nuevo",
+                        onRetryClick = { viewModel.loadCharacterDetail() }
+                    )
+                }
+                else -> {
+                    val character = uiState.data
+                    if (character != null) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            AsyncImage(
+                                model = character.image,
+                                contentDescription = character.name,
+                                modifier = Modifier
+                                    .size(150.dp)
+                                    .clip(CircleShape),
+                                contentScale = ContentScale.Crop
+                            )
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Text(
+                                text = character.name,
+                                fontSize = 22.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+
+                            Spacer(modifier = Modifier.height(32.dp))
+
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 32.dp)
+                            ) {
+                                DetailRow(label = "Species:", value = character.species)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                DetailRow(label = "Status:", value = character.status)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                DetailRow(label = "Gender:", value = character.gender)
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -410,9 +497,11 @@ fun CharacterDetailScreen(characterId: Int, onBackClick: () -> Unit) {
 // Locations screen
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LocationsScreen(onLocationClick: (Int) -> Unit) {
-    val locationDb = remember { LocationDb() }
-    val locations = remember { locationDb.getAllLocations() }
+fun LocationsScreen(
+    viewModel: LocationsViewModel = viewModel(),
+    onLocationClick: (Int) -> Unit
+) {
+    val uiState by viewModel.uiState.collectAsState()
 
     Scaffold(
         topBar = {
@@ -425,14 +514,30 @@ fun LocationsScreen(onLocationClick: (Int) -> Unit) {
             )
         }
     ) { paddingValues ->
-        LazyColumn(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            items(locations) { location ->
-                LocationItem(location = location) {
-                    onLocationClick(location.id)
+            when {
+                uiState.isLoading -> {
+                    LoadingScreen(onLoadingClick = { viewModel.triggerError() })
+                }
+                uiState.hasError -> {
+                    ErrorScreen(
+                        message = "Error al obtener listado de ubicaciones.\nIntenta de nuevo",
+                        onRetryClick = { viewModel.loadLocations() }
+                    )
+                }
+                else -> {
+                    val locations = uiState.data ?: emptyList()
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        items(locations) { location ->
+                            LocationItem(location = location) {
+                                onLocationClick(location.id)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -465,15 +570,11 @@ fun LocationItem(location: Location, onClick: () -> Unit) {
 // Location details screen
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LocationDetailScreen(locationId: Int, onBackClick: () -> Unit) {
-    val locationDb = remember { LocationDb() }
-    val location = remember(locationId) {
-        try {
-            locationDb.getLocationById(locationId)
-        } catch (_: Exception) {
-            null
-        }
-    }
+fun LocationDetailScreen(
+    viewModel: LocationDetailViewModel = viewModel(),
+    onBackClick: () -> Unit
+) {
+    val uiState by viewModel.uiState.collectAsState()
 
     Scaffold(
         topBar = {
@@ -495,45 +596,55 @@ fun LocationDetailScreen(locationId: Int, onBackClick: () -> Unit) {
             )
         }
     ) { paddingValues ->
-        if (location != null) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Text(
-                    text = location.name,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-
-                Spacer(modifier = Modifier.height(32.dp))
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp)
-                ) {
-                    DetailRow(label = "ID:", value = location.id.toString())
-                    Spacer(modifier = Modifier.height(12.dp))
-                    DetailRow(label = "Type:", value = location.type)
-                    Spacer(modifier = Modifier.height(12.dp))
-                    DetailRow(label = "Dimensions:", value = location.dimension)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+        ) {
+            when {
+                uiState.isLoading -> {
+                    LoadingScreen(onLoadingClick = { viewModel.triggerError() })
                 }
-            }
-        } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(text = "Location no encontrada")
+                uiState.hasError -> {
+                    ErrorScreen(
+                        message = "Error al obtener perfil de ubicación.\nIntenta de nuevo",
+                        onRetryClick = { viewModel.loadLocationDetail() }
+                    )
+                }
+                else -> {
+                    val location = uiState.data
+                    if (location != null) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Text(
+                                text = location.name,
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+
+                            Spacer(modifier = Modifier.height(32.dp))
+
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 24.dp)
+                            ) {
+                                DetailRow(label = "ID:", value = location.id.toString())
+                                Spacer(modifier = Modifier.height(12.dp))
+                                DetailRow(label = "Type:", value = location.type)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                DetailRow(label = "Dimensions:", value = location.dimension)
+                            }
+                        }
+                    }
+                }
             }
         }
     }
