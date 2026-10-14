@@ -1,7 +1,9 @@
 package com.example.lab07a
 
+import android.app.Activity
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -20,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -67,13 +70,34 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun RickAndMortyApp() {
     val navController = rememberNavController()
+    val loginViewModel: LoginViewModel = viewModel()
+    val loginState by loginViewModel.uiState.collectAsState()
 
-    NavHost(navController = navController, startDestination = LoginRoute) {
+    // Mientras verifica DataStore al abrir la app
+    if (loginState.isLoadingSession) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        return
+    }
+
+    val startDestination = if (loginState.isLoggedIn) MainAppRoute else LoginRoute
+
+    NavHost(navController = navController, startDestination = startDestination) {
         composable<LoginRoute> {
+            val context = LocalContext.current
+            // Requisito: Si presiona back en el login, se cierra la app
+            BackHandler {
+                (context as? Activity)?.finish()
+            }
+
             LoginScreen(
+                viewModel = loginViewModel,
                 onStartClick = {
-                    navController.navigate(MainAppRoute) {
-                        popUpTo<LoginRoute> { inclusive = true }
+                    loginViewModel.loginUser {
+                        navController.navigate(MainAppRoute) {
+                            popUpTo<LoginRoute> { inclusive = true }
+                        }
                     }
                 }
             )
@@ -155,6 +179,13 @@ fun MainScreen(onLogout: () -> Unit) {
             // Characters
             composable<CharactersTabRoute> {
                 val characterNavController = rememberNavController()
+                val context = LocalContext.current
+
+                // Requisito: Si presiona back en la lista de personajes, se cierra la app
+                BackHandler {
+                    (context as? Activity)?.finish()
+                }
+
                 NavHost(navController = characterNavController, startDestination = CharactersListRoute) {
                     composable<CharactersListRoute> {
                         CharactersScreen(
@@ -174,6 +205,12 @@ fun MainScreen(onLogout: () -> Unit) {
             // Locations
             composable<LocationsTabRoute> {
                 val locationNavController = rememberNavController()
+                val context = LocalContext.current
+
+                BackHandler {
+                    (context as? Activity)?.finish()
+                }
+
                 NavHost(navController = locationNavController, startDestination = LocationsListRoute) {
                     composable<LocationsListRoute> {
                         LocationsScreen(
@@ -192,7 +229,11 @@ fun MainScreen(onLogout: () -> Unit) {
 
             // Profile screen
             composable<ProfileTabRoute> {
-                ProfileScreen(onLogout = onLogout)
+                val profileViewModel: ProfileViewModel = viewModel()
+                ProfileScreen(
+                    viewModel = profileViewModel,
+                    onLogout = onLogout
+                )
             }
         }
     }
@@ -262,9 +303,14 @@ fun ErrorScreen(message: String, onRetryClick: () -> Unit) {
     }
 }
 
-// Login screen
+// Login screen actualizado con el input de Nombre
 @Composable
-fun LoginScreen(onStartClick: () -> Unit) {
+fun LoginScreen(
+    viewModel: LoginViewModel = viewModel(),
+    onStartClick: () -> Unit
+) {
+    val uiState by viewModel.uiState.collectAsState()
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -281,15 +327,26 @@ fun LoginScreen(onStartClick: () -> Unit) {
                 model = "https://1000logos.net/wp-content/uploads/2022/03/Rick-and-Morty.png",
                 contentDescription = "Logo Rick and Morty",
                 modifier = Modifier
-                    .height(120.dp)
+                    .height(100.dp)
                     .fillMaxWidth(),
                 contentScale = ContentScale.Fit
             )
 
             Spacer(modifier = Modifier.height(32.dp))
 
+            OutlinedTextField(
+                value = uiState.nameInput,
+                onValueChange = { viewModel.onNameChanged(it) },
+                label = { Text("Nombre") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(0.8f)
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
             Button(
                 onClick = onStartClick,
+                enabled = uiState.nameInput.isNotBlank(),
                 modifier = Modifier
                     .fillMaxWidth(0.6f)
                     .height(50.dp),
@@ -297,7 +354,7 @@ fun LoginScreen(onStartClick: () -> Unit) {
                     containerColor = MaterialTheme.colorScheme.primary
                 )
             ) {
-                Text(text = "Entrar", fontSize = 16.sp)
+                Text(text = "Iniciar sesión", fontSize = 16.sp)
             }
         }
 
@@ -650,10 +707,15 @@ fun LocationDetailScreen(
     }
 }
 
-// Profile screen
+// Profile screen actualizado con el nombre dinámico de DataStore
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProfileScreen(onLogout: () -> Unit) {
+fun ProfileScreen(
+    viewModel: ProfileViewModel = viewModel(),
+    onLogout: () -> Unit
+) {
+    val userName by viewModel.userName.collectAsState()
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -689,7 +751,7 @@ fun ProfileScreen(onLogout: () -> Unit) {
                     .fillMaxWidth()
                     .padding(horizontal = 32.dp)
             ) {
-                DetailRow(label = "Nombre:", value = "Diego Ayala")
+                DetailRow(label = "Nombre:", value = userName)
                 Spacer(modifier = Modifier.height(12.dp))
                 DetailRow(label = "Carné:", value = "25570")
             }
@@ -697,7 +759,11 @@ fun ProfileScreen(onLogout: () -> Unit) {
             Spacer(modifier = Modifier.height(48.dp))
 
             Button(
-                onClick = onLogout,
+                onClick = {
+                    viewModel.logout {
+                        onLogout()
+                    }
+                },
                 modifier = Modifier
                     .fillMaxWidth(0.6f)
                     .height(50.dp),
