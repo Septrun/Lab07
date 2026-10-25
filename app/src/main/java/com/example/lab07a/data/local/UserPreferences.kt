@@ -1,4 +1,4 @@
-package com.example.lab07a
+package com.example.lab07a.data.local
 
 import android.content.Context
 import androidx.datastore.preferences.core.edit
@@ -7,7 +7,6 @@ import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
-// Extensión para inicializar el DataStore
 val Context.dataStore by preferencesDataStore(name = "user_preferences")
 
 class UserPreferences(private val context: Context) {
@@ -16,9 +15,7 @@ class UserPreferences(private val context: Context) {
     }
 
     val userNameFlow: Flow<String?> = context.dataStore.data
-        .map { preferences ->
-            preferences[USER_NAME_KEY]
-        }
+        .map { preferences -> preferences[USER_NAME_KEY] }
 
     suspend fun saveUserName(name: String) {
         context.dataStore.edit { preferences ->

@@ -1,10 +1,12 @@
 package com.example.lab07a
 
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
-import kotlinx.coroutines.delay
+import com.example.lab07a.data.local.AppDatabase
+import com.example.lab07a.data.mappers.toModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -12,36 +14,43 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class CharacterDetailUiState(
-    val isLoading: Boolean = true,
-    val data: Character? = null,
-    val hasError: Boolean = false
+    val character: Character? = null,
+    val isLoading: Boolean = true
 )
 
-class CharacterDetailViewModel(savedStateHandle: SavedStateHandle) : ViewModel() {
+class CharacterDetailViewModel(
+    application: Application,
+    savedStateHandle: SavedStateHandle
+) : AndroidViewModel(application) {
+    private val route = savedStateHandle.toRoute<CharacterDetailRoute>()
+    private val characterDao = AppDatabase.getDatabase(application).characterDao()
+
     private val _uiState = MutableStateFlow(CharacterDetailUiState())
     val uiState: StateFlow<CharacterDetailUiState> = _uiState.asStateFlow()
 
-    private val route = savedStateHandle.toRoute<CharacterDetailRoute>()
-    private val characterId = route.characterId
-    private val characterDb = CharacterDb()
-
-    init { loadCharacterDetail() }
+    init {
+        loadCharacterDetail()
+    }
 
     fun loadCharacterDetail() {
         viewModelScope.launch {
-            // Se definen los 2s para la carga del perfil del personaje
-            _uiState.update { it.copy(isLoading = true, hasError = false) }
-            delay(2000L)
-            try {
-                val character = characterDb.getCharacterById(characterId)
-                _uiState.update { it.copy(isLoading = false, data = character) }
-            } catch (_: Exception) {
-                _uiState.update { it.copy(isLoading = false, hasError = true) }
+            _uiState.update { it.copy(isLoading = true) }
+            val entity = characterDao.getCharacterById(route.characterId)
+            _uiState.update {
+                it.copy(
+                    character = entity?.toModel(),
+                    isLoading = false
+                )
             }
         }
     }
 
-    fun triggerError() {
-        _uiState.update { it.copy(isLoading = false, hasError = true) }
+    fun toggleFavorite() {
+        val current = _uiState.value.character ?: return
+        viewModelScope.launch {
+            val newStatus = !current.isFavorite
+            characterDao.updateFavorite(current.id, newStatus)
+            _uiState.update { it.copy(character = current.copy(isFavorite = newStatus)) }
+        }
     }
 }

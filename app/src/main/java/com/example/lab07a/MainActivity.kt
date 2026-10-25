@@ -1,7 +1,9 @@
 package com.example.lab07a
 
 import android.app.Activity
+import android.app.Application
 import android.os.Bundle
+import androidx.lifecycle.ViewModelProvider
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -12,10 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -73,7 +72,6 @@ fun RickAndMortyApp() {
     val loginViewModel: LoginViewModel = viewModel()
     val loginState by loginViewModel.uiState.collectAsState()
 
-    // Mientras verifica DataStore al abrir la app
     if (loginState.isLoadingSession) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
@@ -81,12 +79,11 @@ fun RickAndMortyApp() {
         return
     }
 
-    val startDestination = if (loginState.isLoggedIn) MainAppRoute else LoginRoute
+    val startDestination = LoginRoute
 
     NavHost(navController = navController, startDestination = startDestination) {
         composable<LoginRoute> {
             val context = LocalContext.current
-            // Requisito: Si presiona back en el login, se cierra la app
             BackHandler {
                 (context as? Activity)?.finish()
             }
@@ -181,7 +178,6 @@ fun MainScreen(onLogout: () -> Unit) {
                 val characterNavController = rememberNavController()
                 val context = LocalContext.current
 
-                // Requisito: Si presiona back en la lista de personajes, se cierra la app
                 BackHandler {
                     (context as? Activity)?.finish()
                 }
@@ -229,7 +225,10 @@ fun MainScreen(onLogout: () -> Unit) {
 
             // Profile screen
             composable<ProfileTabRoute> {
-                val profileViewModel: ProfileViewModel = viewModel()
+                val context = LocalContext.current
+                val profileViewModel: ProfileViewModel = viewModel(
+                    factory = ViewModelProvider.AndroidViewModelFactory.getInstance(context.applicationContext as Application)
+                )
                 ProfileScreen(
                     viewModel = profileViewModel,
                     onLogout = onLogout
@@ -239,7 +238,7 @@ fun MainScreen(onLogout: () -> Unit) {
     }
 }
 
-// Componentes de Loading y Error
+// Loading y Error
 @Composable
 fun LoadingScreen(onLoadingClick: () -> Unit) {
     Box(
@@ -303,7 +302,7 @@ fun ErrorScreen(message: String, onRetryClick: () -> Unit) {
     }
 }
 
-// Login screen actualizado con el input de Nombre
+// Login screen con indicador de sincronización inicial
 @Composable
 fun LoginScreen(
     viewModel: LoginViewModel = viewModel(),
@@ -338,6 +337,7 @@ fun LoginScreen(
                 value = uiState.nameInput,
                 onValueChange = { viewModel.onNameChanged(it) },
                 label = { Text("Nombre") },
+                enabled = !uiState.isSyncing,
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(0.8f)
             )
@@ -346,7 +346,7 @@ fun LoginScreen(
 
             Button(
                 onClick = onStartClick,
-                enabled = uiState.nameInput.isNotBlank(),
+                enabled = uiState.nameInput.isNotBlank() && !uiState.isSyncing,
                 modifier = Modifier
                     .fillMaxWidth(0.6f)
                     .height(50.dp),
@@ -354,7 +354,15 @@ fun LoginScreen(
                     containerColor = MaterialTheme.colorScheme.primary
                 )
             ) {
-                Text(text = "Iniciar sesión", fontSize = 16.sp)
+                if (uiState.isSyncing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Text(text = "Iniciar sesión", fontSize = 16.sp)
+                }
             }
         }
 
@@ -370,7 +378,7 @@ fun LoginScreen(
     }
 }
 
-// Characters screen
+// Characters screen con Room y filtro de favoritos
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CharactersScreen(
@@ -383,6 +391,15 @@ fun CharactersScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Characters") },
+                actions = {
+                    IconButton(onClick = { viewModel.toggleFavoriteFilter() }) {
+                        Icon(
+                            imageVector = if (uiState.showOnlyFavorites) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                            tint = if (uiState.showOnlyFavorites) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onPrimary,
+                            contentDescription = "Filtrar favoritos"
+                        )
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     titleContentColor = MaterialTheme.colorScheme.onPrimary
@@ -395,24 +412,30 @@ fun CharactersScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            when {
-                uiState.isLoading -> {
-                    LoadingScreen(onLoadingClick = { viewModel.triggerError() })
-                }
-                uiState.hasError -> {
-                    ErrorScreen(
-                        message = "Error al obtener listado de personajes.\nIntenta de nuevo",
-                        onRetryClick = { viewModel.loadCharacters() }
+            if (uiState.characters.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (uiState.showOnlyFavorites) {
+                            "No hay elementos favoritos para mostrar"
+                        } else {
+                            "No hay personajes disponibles."
+                        },
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                else -> {
-                    val characters = uiState.data ?: emptyList()
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        items(characters) { character ->
-                            CharacterItem(character = character) {
-                                onCharacterClick(character.id)
-                            }
-                        }
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    items(uiState.characters) { character ->
+                        CharacterItem(
+                            character = character,
+                            onClick = { onCharacterClick(character.id) },
+                            onFavoriteClick = { viewModel.toggleFavorite(character.id, character.isFavorite) }
+                        )
                     }
                 }
             }
@@ -421,7 +444,11 @@ fun CharactersScreen(
 }
 
 @Composable
-fun CharacterItem(character: Character, onClick: () -> Unit) {
+fun CharacterItem(
+    character: Character,
+    onClick: () -> Unit,
+    onFavoriteClick: () -> Unit
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -440,7 +467,7 @@ fun CharacterItem(character: Character, onClick: () -> Unit) {
 
         Spacer(modifier = Modifier.width(16.dp))
 
-        Column {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = character.name,
                 fontWeight = FontWeight.Bold,
@@ -454,10 +481,18 @@ fun CharacterItem(character: Character, onClick: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+
+        IconButton(onClick = onFavoriteClick) {
+            Icon(
+                imageVector = if (character.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                tint = if (character.isFavorite) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                contentDescription = "Favorito"
+            )
+        }
     }
 }
 
-// Character details screen
+// Character details screen con Room y botón de favorito
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CharacterDetailScreen(
@@ -478,6 +513,18 @@ fun CharacterDetailScreen(
                         )
                     }
                 },
+                actions = {
+                    val character = uiState.character
+                    if (character != null) {
+                        IconButton(onClick = { viewModel.toggleFavorite() }) {
+                            Icon(
+                                imageVector = if (character.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                tint = if (character.isFavorite) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onPrimary,
+                                contentDescription = "Favorito"
+                            )
+                        }
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     titleContentColor = MaterialTheme.colorScheme.onPrimary,
@@ -491,58 +538,51 @@ fun CharacterDetailScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            when {
-                uiState.isLoading -> {
-                    LoadingScreen(onLoadingClick = { viewModel.triggerError() })
+            if (uiState.isLoading) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
                 }
-                uiState.hasError -> {
-                    ErrorScreen(
-                        message = "Error al obtener perfil del personaje.\nIntenta de nuevo",
-                        onRetryClick = { viewModel.loadCharacterDetail() }
-                    )
-                }
-                else -> {
-                    val character = uiState.data
-                    if (character != null) {
+            } else {
+                val character = uiState.character
+                if (character != null) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        AsyncImage(
+                            model = character.image,
+                            contentDescription = character.name,
+                            modifier = Modifier
+                                .size(150.dp)
+                                .clip(CircleShape),
+                            contentScale = ContentScale.Crop
+                        )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Text(
+                            text = character.name,
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+
+                        Spacer(modifier = Modifier.height(32.dp))
+
                         Column(
                             modifier = Modifier
-                                .fillMaxSize()
-                                .padding(24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                                .fillMaxWidth()
+                                .padding(horizontal = 32.dp)
                         ) {
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            AsyncImage(
-                                model = character.image,
-                                contentDescription = character.name,
-                                modifier = Modifier
-                                    .size(150.dp)
-                                    .clip(CircleShape),
-                                contentScale = ContentScale.Crop
-                            )
-
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            Text(
-                                text = character.name,
-                                fontSize = 22.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-
-                            Spacer(modifier = Modifier.height(32.dp))
-
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 32.dp)
-                            ) {
-                                DetailRow(label = "Species:", value = character.species)
-                                Spacer(modifier = Modifier.height(12.dp))
-                                DetailRow(label = "Status:", value = character.status)
-                                Spacer(modifier = Modifier.height(12.dp))
-                                DetailRow(label = "Gender:", value = character.gender)
-                            }
+                            DetailRow(label = "Species:", value = character.species)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            DetailRow(label = "Status:", value = character.status)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            DetailRow(label = "Gender:", value = character.gender)
                         }
                     }
                 }
@@ -707,11 +747,11 @@ fun LocationDetailScreen(
     }
 }
 
-// Profile screen actualizado con el nombre dinámico de DataStore
+// Profile screen
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
-    viewModel: ProfileViewModel = viewModel(),
+    viewModel: ProfileViewModel,
     onLogout: () -> Unit
 ) {
     val userName by viewModel.userName.collectAsState()
